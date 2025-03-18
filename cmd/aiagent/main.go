@@ -6,7 +6,7 @@ import (
 	"os"
 	"strings"
 
-	"aiagent/cmd/aiagent/nodes"
+	"aiagent/pkg/nodes"
 )
 
 func main() {
@@ -29,7 +29,7 @@ func main() {
 
 	// Combine all arguments into a single input string
 	input := strings.Join(args, " ")
-	
+
 	// Only show verbose output if -v flag is used
 	if *verbose {
 		fmt.Printf("Received input: %s\n", input)
@@ -66,9 +66,9 @@ func main() {
 // MockLLM implements a simple mock LLM for testing the system
 type MockLLM struct{}
 
-func (m *MockLLM) Generate(prompt string, systemPrompt string) (string, error) {
+func (m *MockLLM) Complete(prompt string) (string, error) {
 	promptLower := strings.ToLower(prompt)
-	
+
 	// Check if this is the formatter output phase (after code_analyzer has already been selected)
 	if strings.Contains(promptLower, "subject to analyze") {
 		// Return markdown content that will be formatted
@@ -96,43 +96,43 @@ func (m *MockLLM) Generate(prompt string, systemPrompt string) (string, error) {
 			"## Usage\n" +
 			"The formatter is automatically invoked as part of the langgraph pipeline.", nil
 	}
-	
+
 	// Manually process this very specific test case to show code analyzer output
-	if strings.Contains(promptLower, "collect all information about the formatter") || 
-	   strings.Contains(promptLower, "formatter component") || 
-	   strings.Contains(promptLower, "tell me about formatter") {
+	if strings.Contains(promptLower, "collect all information about the formatter") ||
+		strings.Contains(promptLower, "formatter component") ||
+		strings.Contains(promptLower, "tell me about formatter") {
 		return "code_analyzer", nil
 	}
-	
+
 	// Otherwise, delegate to the real mock implementation
-	return nodes.DefaultMockGenerate(prompt, systemPrompt)
+	return nodes.DefaultMockGenerate(prompt, "")
 }
 
 // runLangGraph orchestrates the flow between nodes
 func runLangGraph(input string, llm nodes.LLM, verbose bool, forceApprove bool) (string, error) {
 	// Create core nodes
-	classifierNode := nodes.NewClassifierNode(llm, verbose)
-	bashNode := nodes.NewBashNode(llm, verbose)
-	validationNode := nodes.NewValidationNode(llm, verbose)
+	classifierNode := nodes.NewClassifierNode(llm)
+	bashNode := nodes.NewBashNode(llm)
+	validationNode := nodes.NewValidationNode(llm)
 	validationNode.ForceApproval = forceApprove // Set force approval flag
-	formatterNode := nodes.NewFormatterNode(llm, verbose)
-	
+	formatterNode := nodes.NewFormatterNode(llm)
+
 	// Create analytics nodes
 	contentCollectionNode := nodes.NewContentCollectionNode(llm, verbose)
-	analyticsNode := nodes.NewAnalyticsNode(llm, verbose)
-	directResponseNode := nodes.NewDirectResponseNode(llm, verbose)
-	codeAnalyzerNode := nodes.NewCodeAnalyzerNode(llm, verbose)
+	analyticsNode := nodes.NewAnalyticsNode(llm)
+	directResponseNode := nodes.NewDirectResponseNode(llm)
+	codeAnalyzerNode := nodes.NewCodeAnalyzerNode(llm)
 
 	// Get current working directory
 	cwd, err := os.Getwd()
 	if err != nil {
 		return "", fmt.Errorf("failed to get current working directory: %v", err)
 	}
-	
+
 	if verbose {
 		fmt.Printf("Working in directory: %s\n", cwd)
 	}
-	
+
 	// Create initial state
 	state := &nodes.State{
 		Input:            input,
@@ -141,39 +141,61 @@ func runLangGraph(input string, llm nodes.LLM, verbose bool, forceApprove bool) 
 		WorkingDirectory: cwd,
 		FileCountLimit:   50,     // Default to max 50 files
 		FileSizeLimit:    100000, // Default to max 100KB per file
+		GlobalGoal:       input,  // Set the original input as the global goal
+		TaskHistory:      make([]nodes.TaskStatus, 0),
 	}
 
 	// Run the graph until we reach a terminal state
 	for state.NextNode != nodes.NodeTypeTerminal {
 		var err error
+		var result string
 
 		switch state.NextNode {
 		// Core nodes
 		case nodes.NodeTypeClassifier:
-			err = classifierNode.Process(state)
+			result, err = classifierNode.Process(state)
 		case nodes.NodeTypeBash:
-			err = bashNode.Process(state)
+			result, err = bashNode.Process(state)
+			state.CurrentTask.Result = result
+			state.NextNode = nodes.NodeTypeClassifier // Route back to classifier
 		case nodes.NodeTypeValidation:
 			err = validationNode.Process(state)
+			state.CurrentTask.Result = state.RawOutput
+			state.NextNode = nodes.NodeTypeClassifier // Route back to classifier
 		case nodes.NodeTypeFormatter:
 			err = formatterNode.Process(state)
-			
+			state.CurrentTask.Result = state.RawOutput
+			state.NextNode = nodes.NodeTypeClassifier // Route back to classifier
+
 		// Analytics nodes
 		case nodes.NodeTypeContentCollection:
 			err = contentCollectionNode.Process(state)
+			state.CurrentTask.Result = state.RawOutput
+			state.NextNode = nodes.NodeTypeClassifier // Route back to classifier
 		case nodes.NodeTypeAnalytics:
 			err = analyticsNode.Process(state)
+			state.CurrentTask.Result = state.RawOutput
+			state.NextNode = nodes.NodeTypeClassifier // Route back to classifier
 		case nodes.NodeTypeDirectResponse:
 			err = directResponseNode.Process(state)
+			state.CurrentTask.Result = state.RawOutput
+			state.NextNode = nodes.NodeTypeClassifier // Route back to classifier
 		case nodes.NodeTypeCodeAnalyzer:
 			err = codeAnalyzerNode.Process(state)
-			
+			state.CurrentTask.Result = state.RawOutput
+			state.NextNode = nodes.NodeTypeClassifier // Route back to classifier
+
 		default:
 			return "", fmt.Errorf("invalid node type: %s", state.NextNode)
 		}
 
 		if err != nil {
 			return "", fmt.Errorf("error in node %s: %v", state.NextNode, err)
+		}
+
+		// Update FinalResult with the latest result if available
+		if result != "" {
+			state.FinalResult = result
 		}
 	}
 

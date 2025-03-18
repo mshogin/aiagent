@@ -64,7 +64,7 @@ func (llm *DefaultLLM) Generate(prompt string, systemPrompt string) (string, err
 	}
 
 	messages := []ChatMessage{}
-	
+
 	// Add system prompt if provided
 	if systemPrompt != "" {
 		messages = append(messages, ChatMessage{
@@ -72,7 +72,7 @@ func (llm *DefaultLLM) Generate(prompt string, systemPrompt string) (string, err
 			Content: systemPrompt,
 		})
 	}
-	
+
 	// Add user prompt
 	messages = append(messages, ChatMessage{
 		Role:    "user",
@@ -125,6 +125,11 @@ func (llm *DefaultLLM) Generate(prompt string, systemPrompt string) (string, err
 	return strings.TrimSpace(result.Choices[0].Message.Content), nil
 }
 
+// Complete implements the LLM interface
+func (llm *DefaultLLM) Complete(prompt string) (string, error) {
+	return llm.Generate(prompt, "")
+}
+
 // MockLLM implements the LLM interface for testing purposes
 type MockLLM struct{}
 
@@ -141,25 +146,25 @@ func DefaultMockGenerate(prompt string, systemPrompt string) (string, error) {
 	// Handle classifier node requests
 	if strings.Contains(promptLower, "which node") || strings.Contains(promptLower, "classifier") {
 		// Check for analytics related terms
-		if strings.Contains(promptLower, "analyze") || strings.Contains(promptLower, "code") || 
-		   strings.Contains(promptLower, "files") || strings.Contains(promptLower, "content") || 
-		   strings.Contains(promptLower, "summarize") || strings.Contains(promptLower, "what type") {
+		if strings.Contains(promptLower, "analyze") || strings.Contains(promptLower, "code") ||
+			strings.Contains(promptLower, "files") || strings.Contains(promptLower, "content") ||
+			strings.Contains(promptLower, "summarize") || strings.Contains(promptLower, "what type") {
 			return "content_collection", nil
 		}
-		
+
 		// Check for specific component analysis terms
-		if strings.Contains(promptLower, "collect all information about") || 
-		   strings.Contains(promptLower, "explain how") || strings.Contains(promptLower, "tell me about") ||
-		   strings.Contains(promptLower, "describe the") {
+		if strings.Contains(promptLower, "collect all information about") ||
+			strings.Contains(promptLower, "explain how") || strings.Contains(promptLower, "tell me about") ||
+			strings.Contains(promptLower, "describe the") {
 			return "code_analyzer", nil
 		}
-		
+
 		// Check for direct response terms
-		if strings.Contains(promptLower, "explain") || strings.Contains(promptLower, "what is") || 
-		   strings.Contains(promptLower, "how does") || strings.Contains(promptLower, "tell me about") {
+		if strings.Contains(promptLower, "explain") || strings.Contains(promptLower, "what is") ||
+			strings.Contains(promptLower, "how does") || strings.Contains(promptLower, "tell me about") {
 			return "direct_response", nil
 		}
-		
+
 		// Default to bash commands
 		return "bash", nil
 	}
@@ -176,7 +181,7 @@ func DefaultMockGenerate(prompt string, systemPrompt string) (string, error) {
 			return `{"needsContent": true, "filePatterns": ["*.*"]}`, nil
 		}
 	}
-	
+
 	// Handle bash node requests
 	if strings.Contains(promptLower, "generate") || strings.Contains(promptLower, "bash command") {
 		if strings.Contains(promptLower, "list") && strings.Contains(promptLower, "file") {
@@ -203,17 +208,17 @@ func DefaultMockGenerate(prompt string, systemPrompt string) (string, error) {
 		if strings.Contains(promptLower, "rm -rf") || strings.Contains(promptLower, "sudo") {
 			return "DANGEROUS [8] This command has high potential for system damage as it involves destructive operations that could permanently delete data or modify system settings.", nil
 		}
-		
+
 		// For commands that need caution
-		if strings.Contains(promptLower, "mv") || strings.Contains(promptLower, "cp") || 
-		   strings.Contains(promptLower, ">") || strings.Contains(promptLower, "chmod") {
+		if strings.Contains(promptLower, "mv") || strings.Contains(promptLower, "cp") ||
+			strings.Contains(promptLower, ">") || strings.Contains(promptLower, "chmod") {
 			return "CAUTION [5] This command modifies files or permissions but is generally safe when used correctly. Verify the target paths before execution.", nil
 		}
-		
+
 		// For standard safe commands
 		return "SAFE [2] This command is safe to execute. It only reads information without modifying any system files or settings.", nil
 	}
-	
+
 	// Handle alternative command suggestions
 	if strings.Contains(promptLower, "suggest an alternative command") {
 		// Check for common errors and suggest fixes
@@ -230,7 +235,7 @@ func DefaultMockGenerate(prompt string, systemPrompt string) (string, error) {
 				return "which command-name", nil
 			}
 		}
-		
+
 		// For file not found errors
 		if strings.Contains(promptLower, "no such file") || strings.Contains(promptLower, "cannot find") {
 			if strings.Contains(promptLower, "ls ") {
@@ -243,7 +248,7 @@ func DefaultMockGenerate(prompt string, systemPrompt string) (string, error) {
 				return "find . -type f | grep -i filename", nil
 			}
 		}
-		
+
 		// For permission errors
 		if strings.Contains(promptLower, "permission denied") {
 			if strings.Contains(promptLower, "chmod ") {
@@ -252,11 +257,11 @@ func DefaultMockGenerate(prompt string, systemPrompt string) (string, error) {
 				return "sudo bash -c \"original command\"", nil
 			}
 		}
-		
+
 		// Default alternative
 		return "ls -la && pwd", nil
 	}
-	
+
 	// Handle code analyzer requests
 	if strings.Contains(promptLower, "extract the main technical subject") {
 		if strings.Contains(promptLower, "formatter") {
@@ -271,7 +276,7 @@ func DefaultMockGenerate(prompt string, systemPrompt string) (string, error) {
 			return "code component", nil
 		}
 	}
-	
+
 	if strings.Contains(promptLower, "generate related technical terms") {
 		if strings.Contains(promptLower, "formatter") {
 			return "format, formatting, output formatting, pretty print, display", nil
@@ -283,7 +288,7 @@ func DefaultMockGenerate(prompt string, systemPrompt string) (string, error) {
 			return "component, module, system, function, class", nil
 		}
 	}
-	
+
 	if strings.Contains(promptLower, "subject to analyze") {
 		if strings.Contains(promptLower, "formatter") {
 			return "# Formatter Component Analysis\n\n" +
@@ -358,8 +363,8 @@ func DefaultMockGenerate(prompt string, systemPrompt string) (string, error) {
 	}
 
 	// Handle markdown formatting specifically
-	if strings.Contains(promptLower, "format") && (strings.Contains(promptLower, "markdown") || 
-	   strings.Contains(promptLower, "#") || strings.Contains(promptLower, "code block")) {
+	if strings.Contains(promptLower, "format") && (strings.Contains(promptLower, "markdown") ||
+		strings.Contains(promptLower, "#") || strings.Contains(promptLower, "code block")) {
 		// For markdown output
 		return "\x1b[1m\x1b[34m# Markdown Heading Level 1\x1b[0m\n\n" +
 			"\x1b[1m\x1b[36m## Heading Level 2\x1b[0m\n\n" +
@@ -408,14 +413,14 @@ func DefaultMockGenerate(prompt string, systemPrompt string) (string, error) {
 				"\x1b[1mSwap:         \x1b[0m   4.0Gi       0.0Gi       4.0Gi", nil
 		}
 		// Generic formatter response for other commands
-		return "\x1b[1m\x1b[36mFormatted output for command:\x1b[0m \x1b[32m" + 
-			strings.TrimPrefix(strings.TrimPrefix(promptLower, "format this terminal output from the command '"), "' to make it more readable:") + 
+		return "\x1b[1m\x1b[36mFormatted output for command:\x1b[0m \x1b[32m" +
+			strings.TrimPrefix(strings.TrimPrefix(promptLower, "format this terminal output from the command '"), "' to make it more readable:") +
 			"\x1b[0m", nil
 	}
-	
+
 	// Handle analytics requests
-	if strings.Contains(promptLower, "analytics") || strings.Contains(promptLower, "directory structure") || 
-	   strings.Contains(promptLower, "file contents") || strings.Contains(promptLower, "question") {
+	if strings.Contains(promptLower, "analytics") || strings.Contains(promptLower, "directory structure") ||
+		strings.Contains(promptLower, "file contents") || strings.Contains(promptLower, "question") {
 		if strings.Contains(promptLower, "code") || strings.Contains(promptLower, "programming") {
 			return "## Code Analysis\n\n" +
 				"This directory contains:\n" +
@@ -448,7 +453,7 @@ func DefaultMockGenerate(prompt string, systemPrompt string) (string, error) {
 				"The project appears to be a command-line tool written primarily in Go.", nil
 		}
 	}
-	
+
 	// Handle direct response requests
 	if strings.Contains(promptLower, "file system") || strings.Contains(promptLower, "question about") {
 		if strings.Contains(promptLower, "symbolic link") || strings.Contains(promptLower, "symlink") {
@@ -471,6 +476,6 @@ func DefaultMockGenerate(prompt string, systemPrompt string) (string, error) {
 				"- Create a new file: touch new_file.txt", nil
 		}
 	}
-	
+
 	return "I don't understand the request.", nil
 }

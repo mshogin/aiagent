@@ -1,6 +1,7 @@
 package nodes
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 )
@@ -19,75 +20,75 @@ type AnalyticsNodeInterface interface {
 
 // AnalyticsNode implements the analytics node logic
 type AnalyticsNode struct {
-	LLM     LLM
-	Verbose bool
+	llm LLM
 }
 
 // NewAnalyticsNode creates a new analytics node
-func NewAnalyticsNode(llm LLM, verbose bool) *AnalyticsNode {
+func NewAnalyticsNode(llm LLM) *AnalyticsNode {
 	return &AnalyticsNode{
-		LLM:     llm,
-		Verbose: verbose,
+		llm: llm,
 	}
 }
 
 // Process implements the Node interface for AnalyticsNode
 func (n *AnalyticsNode) Process(state *State) error {
-	if n.Verbose {
-		fmt.Println("Analytics node processing directory content...")
-		fmt.Printf("Analyzing %d files/directories\n", len(state.DirectoryContents))
-		fmt.Printf("Question: %s\n", state.AnalyticsQuestion)
-	}
+	// Analyze task history and state
+	prompt := fmt.Sprintf(`Analyze the task history and current state to provide insights:
+Global Goal: %s
+Task History: %v
+Current State: %s
 
-	// Prepare a structured representation of the directory contents
-	dirStructure, fileContents := n.prepareDirectoryInfo(state.DirectoryContents)
+Return JSON response with:
+{
+    "insights": ["insight1", "insight2"],
+    "recommendations": ["recommendation1", "recommendation2"],
+    "explanation": "explanation of the analysis"
+}`, state.GlobalGoal, state.TaskHistory, state.CurrentTask.Result)
 
-	systemPrompt := `You are an analytics system that analyzes directory contents and answers questions about them.
-Your task is to analyze the provided directory structure and file contents to answer the user's question.
-
-You should:
-1. Analyze the directory structure to understand what files are available
-2. Examine file contents when provided to extract relevant information
-3. Generate a clear, concise answer to the user's question
-4. Format your response with proper spacing and structure for readability
-5. Use bullet points or sections when appropriate
-6. When referencing files, use relative paths from the current directory
-7. Respond only with the answer, no need for explanation of your analysis process
-
-Remember: You're analyzing a file system, so consider file types, naming patterns, directory organization, 
-and content when forming your response.`
-
-	// Build prompt with directory structure and file contents
-	prompt := fmt.Sprintf("Question: %s\n\nCurrent working directory: %s\n\n", 
-		state.AnalyticsQuestion, state.WorkingDirectory)
-
-	prompt += "Directory structure:\n" + dirStructure + "\n\n"
-
-	if len(fileContents) > 0 {
-		prompt += "File contents:\n" + fileContents
-	}
-
-	// Use LLM to analyze the data and answer the question
-	response, err := n.LLM.Generate(prompt, systemPrompt)
+	response, err := n.llm.Complete(prompt)
 	if err != nil {
-		return fmt.Errorf("analytics LLM error: %v", err)
+		return fmt.Errorf("LLM error: %v", err)
 	}
 
-	// Store the result and move to formatter
-	state.RawOutput = response
-	state.FinalResult = response
+	var result struct {
+		Insights        []string `json:"insights"`
+		Recommendations []string `json:"recommendations"`
+		Explanation     string   `json:"explanation"`
+	}
+	if err := json.Unmarshal([]byte(response), &result); err != nil {
+		return fmt.Errorf("failed to parse analytics response: %v", err)
+	}
+
+	// Format insights
+	var output string
+	output += "Insights:\n"
+	for _, insight := range result.Insights {
+		output += fmt.Sprintf("- %s\n", insight)
+	}
+	output += "\nRecommendations:\n"
+	for _, rec := range result.Recommendations {
+		output += fmt.Sprintf("- %s\n", rec)
+	}
+	output += "\n" + result.Explanation
+
+	state.RawOutput = output
+	state.FinalResult = output
 
 	// The analytics response should go directly to the terminal
 	state.NextNode = NodeTypeTerminal
-	
+
 	return nil
+}
+
+func (n *AnalyticsNode) Type() NodeType {
+	return NodeTypeAnalytics
 }
 
 // prepareDirectoryInfo formats directory information for the LLM
 func (n *AnalyticsNode) prepareDirectoryInfo(contents []FileContent) (string, string) {
 	var dirStructure strings.Builder
 	var fileContents strings.Builder
-	
+
 	// Build a tree-like directory structure representation
 	dirStructure.WriteString("```\n")
 	for _, item := range contents {
@@ -99,31 +100,31 @@ func (n *AnalyticsNode) prepareDirectoryInfo(contents []FileContent) (string, st
 		dirStructure.WriteString(fmt.Sprintf("%s (%d bytes)\n", path, item.Size))
 	}
 	dirStructure.WriteString("```\n")
-	
+
 	// Include file contents when available (up to a reasonable limit)
 	totalContentSize := 0
 	maxContentSize := 100000 // Limit total content to ~100KB to avoid overwhelming the LLM
-	
+
 	for _, item := range contents {
 		if !item.IsDir && len(item.Content) > 0 {
 			// Skip if we've already included too much content
 			if totalContentSize > maxContentSize {
 				continue
 			}
-			
+
 			// Truncate very large files
 			content := item.Content
 			if len(content) > 10000 {
 				content = content[:10000] + "... [truncated]"
 			}
-			
+
 			fileContents.WriteString(fmt.Sprintf("--- %s ---\n", item.Path))
 			fileContents.WriteString(content)
 			fileContents.WriteString("\n\n")
-			
+
 			totalContentSize += len(content)
 		}
 	}
-	
+
 	return dirStructure.String(), fileContents.String()
 }
