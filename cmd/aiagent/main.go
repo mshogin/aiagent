@@ -27,8 +27,12 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Combine all arguments into a single input string
-	input := strings.Join(args, " ")
+	// Validate and sanitize input
+	input, err := validateAndSanitizeInput(args)
+	if err != nil {
+		fmt.Printf("Error: Invalid input: %v\n", err)
+		os.Exit(1)
+	}
 
 	// Only show verbose output if -v flag is used
 	if *verbose {
@@ -61,6 +65,52 @@ func main() {
 
 	// Print the final result without any prefix
 	fmt.Print(result)
+}
+
+// validateAndSanitizeInput validates and sanitizes user input
+func validateAndSanitizeInput(args []string) (string, error) {
+	// Join arguments
+	input := strings.Join(args, " ")
+
+	// Check input length
+	if len(input) > 1000 {
+		return "", fmt.Errorf("input too long (max 1000 characters)")
+	}
+
+	// Check for dangerous patterns
+	dangerousPatterns := []string{
+		"../",
+		"./",
+		"~",
+		"$(",
+		"`",
+		"${",
+		"&&",
+		"||",
+		";",
+		"|",
+		">",
+		"<",
+		"\\",
+		"\"",
+		"'",
+		"\x00", // Null byte
+	}
+
+	for _, pattern := range dangerousPatterns {
+		if strings.Contains(input, pattern) {
+			return "", fmt.Errorf("input contains dangerous pattern: %s", pattern)
+		}
+	}
+
+	// Only allow printable ASCII characters
+	for _, r := range input {
+		if r < 32 || r > 126 {
+			return "", fmt.Errorf("input contains invalid character: %q", r)
+		}
+	}
+
+	return input, nil
 }
 
 // MockLLM implements a simple mock LLM for testing the system

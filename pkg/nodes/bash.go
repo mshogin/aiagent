@@ -59,8 +59,14 @@ Return JSON response with:
 		return "", fmt.Errorf("failed to parse LLM response: %v", err)
 	}
 
+	// Sanitize command
+	if err := validateCommand(result.Command); err != nil {
+		return "", fmt.Errorf("command validation failed: %v", err)
+	}
+
 	// Execute command
 	cmd := exec.Command("bash", "-c", result.Command)
+	cmd.Dir = state.WorkingDirectory // Set working directory
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return string(output), fmt.Errorf("command execution failed: %v", err)
@@ -71,6 +77,89 @@ Return JSON response with:
 	state.NextNode = NodeTypeClassifier
 
 	return state.CurrentTask.Result, nil
+}
+
+// validateCommand checks if a command is safe to execute
+func validateCommand(cmd string) error {
+	// List of dangerous commands/patterns
+	dangerousPatterns := []string{
+		"rm -rf",
+		"rm -r",
+		"sudo",
+		">",
+		">>",
+		"|",
+		"&",
+		";",
+		"`",
+		"$(", // Command substitution
+		"${", // Variable expansion
+		"wget",
+		"curl",
+		"nc",
+		"ncat",
+		"telnet",
+		"ftp",
+		"ssh",
+		"scp",
+		"chmod",
+		"chown",
+		"chgrp",
+		"mkfs",
+		"dd",
+		"mv",
+		"cp",
+	}
+
+	cmdLower := strings.ToLower(cmd)
+	for _, pattern := range dangerousPatterns {
+		if strings.Contains(cmdLower, pattern) {
+			return fmt.Errorf("command contains dangerous pattern: %s", pattern)
+		}
+	}
+
+	// Only allow specific safe commands
+	allowedCommands := []string{
+		"ls",
+		"pwd",
+		"echo",
+		"cat",
+		"head",
+		"tail",
+		"grep",
+		"find",
+		"df",
+		"du",
+		"free",
+		"ps",
+		"top",
+		"uname",
+		"whoami",
+		"id",
+		"date",
+		"uptime",
+		"hostname",
+	}
+
+	cmdParts := strings.Fields(cmd)
+	if len(cmdParts) == 0 {
+		return fmt.Errorf("empty command")
+	}
+
+	baseCmd := cmdParts[0]
+	allowed := false
+	for _, allowedCmd := range allowedCommands {
+		if baseCmd == allowedCmd {
+			allowed = true
+			break
+		}
+	}
+
+	if !allowed {
+		return fmt.Errorf("command not in allowed list: %s", baseCmd)
+	}
+
+	return nil
 }
 
 func (n *BashNode) Type() NodeType {

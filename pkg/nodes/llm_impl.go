@@ -2,12 +2,13 @@ package nodes
 
 import (
 	"bytes"
+	"crypto/tls"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"os"
 	"strings"
+	"time"
 )
 
 // DefaultLLM implements the LLM interface using a simple API call
@@ -43,10 +44,17 @@ type ChatCompletionResponse struct {
 
 // NewDefaultLLM creates a new instance of DefaultLLM
 func NewDefaultLLM() *DefaultLLM {
-	// Default to OpenAI API, but can be replaced with any compatible API
+	// Get API key from environment
 	apiKey := os.Getenv("OPENAI_API_KEY")
 	if apiKey == "" {
-		fmt.Println("Warning: OPENAI_API_KEY environment variable not set")
+		fmt.Println("Error: OPENAI_API_KEY environment variable not set")
+		os.Exit(1)
+	}
+
+	// Validate API key format
+	if err := validateAPIKey(apiKey); err != nil {
+		fmt.Printf("Error: Invalid API key: %v\n", err)
+		os.Exit(1)
 	}
 
 	return &DefaultLLM{
@@ -57,10 +65,32 @@ func NewDefaultLLM() *DefaultLLM {
 	}
 }
 
+// validateAPIKey checks if the API key is in a valid format
+func validateAPIKey(key string) error {
+	// OpenAI API keys are typically prefixed with "sk-" and are 51 characters long
+	if !strings.HasPrefix(key, "sk-") {
+		return fmt.Errorf("API key must start with 'sk-'")
+	}
+
+	if len(key) != 51 {
+		return fmt.Errorf("API key must be 51 characters long")
+	}
+
+	// Check if key contains only valid characters
+	validChars := "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_"
+	for _, c := range key[3:] { // Skip "sk-" prefix
+		if !strings.ContainsRune(validChars, c) {
+			return fmt.Errorf("API key contains invalid characters")
+		}
+	}
+
+	return nil
+}
+
 // Generate implements the LLM interface for DefaultLLM
 func (llm *DefaultLLM) Generate(prompt string, systemPrompt string) (string, error) {
 	if llm.ApiKey == "" {
-		return "", errors.New("API key not set. Please set the OPENAI_API_KEY environment variable")
+		return "", fmt.Errorf("API key not set")
 	}
 
 	messages := []ChatMessage{}
@@ -95,10 +125,21 @@ func (llm *DefaultLLM) Generate(prompt string, systemPrompt string) (string, err
 		return "", fmt.Errorf("failed to create request: %v", err)
 	}
 
+	// Securely add API key to header
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+llm.ApiKey)
 
-	client := &http.Client{}
+	// Use a custom HTTP client with security settings
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{
+				MinVersion: tls.VersionTLS12,
+			},
+			DisableKeepAlives: true,
+		},
+	}
+
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("failed to send request: %v", err)

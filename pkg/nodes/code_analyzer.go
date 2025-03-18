@@ -50,14 +50,30 @@ func (n *CodeAnalyzerNode) Process(state *State) error {
 		return fmt.Errorf("failed to find matching files: %v", err)
 	}
 
-	// Read file contents
+	// Read file contents with safety checks
 	contents := make(map[string]string)
 	for _, file := range files {
-		content, err := os.ReadFile(file)
+		// Validate file path
+		if err := validateFilePath(file, state.WorkingDirectory); err != nil {
+			return fmt.Errorf("invalid file path: %v", err)
+		}
+
+		// Check file size
+		info, err := os.Stat(file)
+		if err != nil {
+			return fmt.Errorf("failed to stat file %s: %v", file, err)
+		}
+
+		if info.Size() > state.FileSizeLimit {
+			return fmt.Errorf("file %s exceeds size limit of %d bytes", file, state.FileSizeLimit)
+		}
+
+		// Read file with size limit
+		content, err := readFileWithLimit(file, state.FileSizeLimit)
 		if err != nil {
 			return fmt.Errorf("failed to read file %s: %v", file, err)
 		}
-		contents[file] = string(content)
+		contents[file] = content
 	}
 
 	// Analyze contents
@@ -185,4 +201,65 @@ Return JSON response with:
 
 func (n *CodeAnalyzerNode) Type() NodeType {
 	return NodeTypeCodeAnalyzer
+}
+
+// validateFilePath checks if a file path is safe to access
+func validateFilePath(path string, workingDir string) error {
+	// Convert to absolute path
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return fmt.Errorf("failed to get absolute path: %v", err)
+	}
+
+	// Convert working directory to absolute path
+	absWorkingDir, err := filepath.Abs(workingDir)
+	if err != nil {
+		return fmt.Errorf("failed to get absolute working directory: %v", err)
+	}
+
+	// Check if path is within working directory
+	if !strings.HasPrefix(absPath, absWorkingDir) {
+		return fmt.Errorf("file path %s is outside working directory %s", path, workingDir)
+	}
+
+	// Check for symlinks
+	fileInfo, err := os.Lstat(path)
+	if err != nil {
+		return fmt.Errorf("failed to stat file: %v", err)
+	}
+
+	if fileInfo.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("symlinks are not allowed: %s", path)
+	}
+
+	return nil
+}
+
+// readFileWithLimit reads a file with a size limit
+func readFileWithLimit(path string, limit int64) (string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return "", fmt.Errorf("failed to open file: %v", err)
+	}
+	defer file.Close()
+
+	// Get file size
+	info, err := file.Stat()
+	if err != nil {
+		return "", fmt.Errorf("failed to stat file: %v", err)
+	}
+
+	// Check size limit
+	if info.Size() > limit {
+		return "", fmt.Errorf("file size %d exceeds limit %d", info.Size(), limit)
+	}
+
+	// Read file
+	content := make([]byte, info.Size())
+	_, err = file.Read(content)
+	if err != nil {
+		return "", fmt.Errorf("failed to read file: %v", err)
+	}
+
+	return string(content), nil
 }
