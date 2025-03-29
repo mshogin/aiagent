@@ -20,6 +20,7 @@ const (
 	NodeTypeAnalytics         NodeType = "analytics"
 	NodeTypeDirectResponse    NodeType = "direct_response"
 	NodeTypeCodeAnalyzer      NodeType = "code_analyzer"
+	NodeTypeCodeFixer         NodeType = "code_fixer"
 )
 
 // FileContent represents a file with its content

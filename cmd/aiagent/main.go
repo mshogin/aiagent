@@ -172,6 +172,7 @@ func runLangGraph(input string, llm nodes.LLM, verbose bool, forceApprove bool) 
 	analyticsNode := nodes.NewAnalyticsNode(llm)
 	directResponseNode := nodes.NewDirectResponseNode(llm)
 	codeAnalyzerNode := nodes.NewCodeAnalyzerNode(llm)
+	codeFixerNode := nodes.NewCodeFixerNode(llm)
 
 	// Get current working directory
 	cwd, err := os.Getwd()
@@ -232,6 +233,10 @@ func runLangGraph(input string, llm nodes.LLM, verbose bool, forceApprove bool) 
 			state.NextNode = nodes.NodeTypeClassifier // Route back to classifier
 		case nodes.NodeTypeCodeAnalyzer:
 			err = codeAnalyzerNode.Process(state)
+			state.CurrentTask.Result = state.RawOutput
+			state.NextNode = nodes.NodeTypeClassifier // Route back to classifier
+		case nodes.NodeTypeCodeFixer:
+			err = codeFixerNode.Process(state)
 			state.CurrentTask.Result = state.RawOutput
 			state.NextNode = nodes.NodeTypeClassifier // Route back to classifier
 

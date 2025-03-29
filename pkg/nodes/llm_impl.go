@@ -72,10 +72,6 @@ func validateAPIKey(key string) error {
 		return fmt.Errorf("API key must start with 'sk-'")
 	}
 
-	if len(key) != 51 {
-		return fmt.Errorf("API key must be 51 characters long")
-	}
-
 	// Check if key contains only valid characters
 	validChars := "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_"
 	for _, c := range key[3:] { // Skip "sk-" prefix
